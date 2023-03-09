@@ -84,9 +84,43 @@ class cal_contrast(nn.Module):
         saliency = self.saliency(self.gray(img).squeeze())
         # local estimate of contrast
         contrast_b_1, contrast_g_1, contrast_r_1 = self.get_contrast(img_b_1, img_g_1, img_r_1)
+        '''
+        cv2.imshow('contrast',
+                   (255 * contrast_b_1 / torch.max(contrast_b_1)).squeeze().detach().cpu().numpy().astype('uint8'))
+        cv2.waitKey(0)
+        '''
+        '''
+        img_b_2, img_g_2, img_r_2 = self.antialiasing(img_b_1, img_g_1, img_r_1)
+        img_b_2, img_g_2, img_r_2 = self.downsample(img_b_2, img_g_2, img_r_2)
+        contrast_b_2, contrast_g_2, contrast_r_2 = self.get_contrast(img_b_2, img_g_2, img_r_2)
 
+        img_b_3, img_g_3, img_r_3 = self.antialiasing(img_b_2, img_g_2, img_r_2)
+        img_b_3, img_g_3, img_r_3 = self.downsample(img_b_3, img_g_3, img_r_3)
+        contrast_b_3, contrast_g_3, contrast_r_3 = self.get_contrast(img_b_3, img_g_3, img_r_3)
+
+        tau_b_1, tau_g_1, tau_r_1 = torch.var(img_b_1), torch.var(img_g_1), torch.var(img_r_1)
+        tau_b_2, tau_g_2, tau_r_2 = torch.var(img_b_2), torch.var(img_g_2), torch.var(img_r_2)
+        tau_b_3, tau_g_3, tau_r_3 = torch.var(img_b_3), torch.var(img_g_3), torch.var(img_r_3)
+
+        C_b = tau_b_1 * torch.mean(contrast_b_1) + tau_b_2 * torch.mean(contrast_b_2) + tau_b_3 * torch.mean(
+            contrast_b_3)
+        C_g = tau_g_1 * torch.mean(contrast_g_1) + tau_g_2 * torch.mean(contrast_g_2) + tau_g_3 * torch.mean(
+            contrast_g_3)
+        C_r = tau_r_1 * torch.mean(contrast_r_1) + tau_r_2 * torch.mean(contrast_r_2) + tau_r_3 * torch.mean(
+            contrast_r_3)
+
+        C_b, C_g, C_r = C_b / 3, C_g / 3, C_r / 3  # by level pf pyramids
+
+        C_WLF = (C_b + C_g + C_r) / 3  # by color, C_WLF is global estimate
+        '''
+        # contrast_img = torch.cat([contrast_b_1.unsqueeze(0), contrast_g_1.unsqueeze(0), contrast_r_1.unsqueeze(0)],
+        #                          dim=0).squeeze()
         contrast_img = torch.cat([contrast_r_1.unsqueeze(0), contrast_g_1.unsqueeze(0), contrast_b_1.unsqueeze(0)],
                                  dim=0).squeeze()
+        # print(contrast_img.shape)
+
+        # local contrast: contrast_b_1, contrast_b_2, contrast_b_3
+        # global contrast: C_WLF
 
         return contrast_img, 0, saliency
 
@@ -115,6 +149,10 @@ class cal_contrast(nn.Module):
         saliency_final = torch.pow(saliency[..., 0], 2) + torch.pow(saliency[..., 1], 2)
         saliency = self.gaussian_conv(saliency_final.unsqueeze(0).unsqueeze(0).cuda()).squeeze()
         saliency = (saliency - torch.min(saliency)) / (torch.max(saliency) - torch.min(saliency))
+
+        # saliency = (saliency.detach().cpu().numpy() * 255).astype('uint8')
+        # cv2.imshow("Output", saliency)
+        # cv2.waitKey(0)
         return saliency
 
     def downsample(self, img_b, img_g, img_r):

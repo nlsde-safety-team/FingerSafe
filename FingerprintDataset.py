@@ -23,7 +23,7 @@ class FingerprintDataset(Dataset):
 
     def load_image(self, files):
         print('load raw data')
-        TARGET_IMG_SIZE = 224  # change it to be 50 in ScatNet experiment
+        TARGET_IMG_SIZE = 224  # todo when the backbone is ScatNet, change it to 50
         img_to_tensor = transforms.ToTensor()
         gray = Gray()
         images = []
@@ -68,6 +68,8 @@ class FingerprintDataset(Dataset):
         raw_pics = []
         masks = []
         for (i_image, l) in files:
+            # img = Image.open(i_image)  # channels = 3/1
+            # img_tensor = img_to_tensor(img)  # img is original picture, 3*w*h
             fin_img, fin_mask, pos, raw_pic = segmentation.segment(i_image)  # fin_img is RGB array, w*h*3
             fin_img = torch.from_numpy(np.transpose(fin_img, (2, 0, 1)))  # 3*w*h
             fin_mask = torch.ones(raw_pic[:, :, 0].shape)
@@ -99,7 +101,7 @@ class FingerprintDataset(Dataset):
             d = os.path.join(dir, target)
             if not os.path.isdir(d):
                 continue
-            # todo: if the file is 4 for training and 2 for testing
+            # todo: if the orgniaztion of the files is like: 4 train / 2 test per class
             for root, _, fnames in sorted(os.walk(d)):
                  for fname in sorted(fnames):
                      if (fname.endswith('.jpg') or fname.endswith('.bmp')) and (root.count(phase) == 1):
@@ -107,7 +109,7 @@ class FingerprintDataset(Dataset):
                          item = (path, class_to_idx[target])
                          meshes.append(item)
 
-            # todo: if the file is scheduled as 6 images per class.
+            # todo: if the orgniaztion of the files is like: 6 images per class
             # for fname in sorted(os.listdir(d)):
             #     if fname.endswith('.jpg') or fname.endswith('.bmp'):
             #         path = os.path.join(d, fname)
@@ -249,7 +251,10 @@ class FingerprintName(FingerprintDataset):
         read_mode = 'rgb'
         self.length = self.class_num * self.image_per_class * self.image_per_class
         self.root = root
+        # self.fingerprint_raw, self.subject_id, self.fingerprint_id = self.get_dataset(self.root, phase, read_mode, name=name)
         self.get_dataset(self.root, phase, read_mode, name=name)
+        # print(self.fingerprint_raw.shape)
+        # self.fingerprint_raw = self.fingerprint_raw.transpose((0, 3, 1, 2))
 
         self.path = self.get_path(self.root, phase)
 
@@ -261,7 +266,7 @@ class FingerprintName(FingerprintDataset):
         return int(self.fingerprint_raw.shape[0] / 6)
 
     def get_path(self, path, method):
-        TARGET_IMG_SIZE = 224
+        TARGET_IMG_SIZE = 224 
         dir = os.path.join(path, method)
         path = []
         for fpath, dirname, fnames in os.walk(dir):
@@ -269,6 +274,87 @@ class FingerprintName(FingerprintDataset):
                 if fid.endswith('bmp'):
                     path.append(os.path.join(fpath, fid))
         return path
+
+    # def get_dataset(self, path, method, read_mode, name):  # physical
+    #     img_to_tensor = transforms.ToTensor()
+    #     TARGET_IMG_SIZE = 224
+    #     dir = os.path.join(path)  # todo sample directory
+    #     data = []
+    #     subject_id = []
+    #     fingerprint_id = []
+    #     classes=[]
+    #     datapath_all = {}
+    #     class_end = 0
+    #     class_id = 0
+    #     for fpath, dirname, fnames in os.walk(dir):
+    #         i=0
+    #         for fid in fnames:
+    #             i += 1
+    #             if fid.endswith('bmp') or fid.endswith('jpg'):
+    #                 if method == 'test':
+    #                     fid_list = fid.split('_')
+    #                 elif method == 'train':
+    #                     # fid_list = fid.split('.')
+    #                     # path_list = os.path.split(fpath)
+    #                     fid_list = fid.split('_')
+    #                 else:
+    #                     fid_list = fid.split('-')
+    #                 if method == 'test':
+    #                     subject = int(fid_list[0]) - 268
+    #                     finger_id = list(fid_list[1])[0]
+    #                 elif method == 'train':
+    #                     # subject = path_list[-1][1:]
+    #                     # finger_id = int(fid_list[0][1:])
+    #                     subject = int(fid_list[0])
+    #                     finger_id = list(fid_list[1])[0]
+    #                 else:
+    #                     finger_id = fid_list[0] + '-' + fid_list[1]
+    #                     pic_id = fid_list[2].split('.')[0]
+    #                 if not finger_id in fingerprint_id:
+    #                     class_end += 1
+    #                     class_id = class_end
+    #                     classes.append(finger_id)
+    #                 else:
+    #                     class_id = classes.index(finger_id) + 1
+    #                     # print(class_id)
+    #
+    #
+    #                 fingerprint_id.append(finger_id)
+    #                 if class_id in datapath_all:
+    #                     subject_dict = datapath_all.get(class_id)
+    #                     # print(subject_dict)
+    #                 else:
+    #                     subject_dict = {}
+    #
+    #                 subject_dict[int(pic_id)] = os.path.join(fpath, fid)
+    #                 # print(subject_dict)
+    #
+    #                 datapath_all[class_id] = subject_dict
+    #             # if i==3:
+    #             #     break
+    #
+    #     # save
+    #
+    #     print(fingerprint_id)
+    #     print(classes)
+    #     f = open('./datapaths/datapath_{}_'.format(name) + 'train' + '.pkl', 'wb')
+    #     pickle.dump(datapath_all, f)
+    #     print(datapath_all)
+    #     print('./datapaths/datapath_{}_'.format(name) + 'train' + '.pkl')
+    #     # exit(0)
+    #
+    #     data = np.asarray(data)  # (1608, 224, 352, 3)
+    #     #print(datapath_all)
+    #     '''
+    #     data_new = torch.zeros(data.shape[0], data.shape[1], data.shape[2])
+    #     for i in range(data.shape[0]):
+    #         data_new[i, ...] = gray(img_to_tensor(data[i, ...])).squeeze()
+    #     data = data_new  # (1608, 224, 352, 1)
+    #     '''
+    #
+    #     subject_id = np.asarray(subject_id)  # (1608,)
+    #     fingerprint_id = np.asarray(fingerprint_id)  # (1608,)
+    #     return data, subject_id, fingerprint_id
 
     def get_dataset(self, path, method, read_mode, name=None):  # polyU
         img_to_tensor = transforms.ToTensor()
@@ -290,6 +376,12 @@ class FingerprintName(FingerprintDataset):
                     else:
                         fid_list = fid.split('-')
 
+                    # if read_mode == 'rgb':
+                    #     image = cv2.imread(os.path.join(fpath, fid))
+                    # else:
+                    #     image = cv2.imread(os.path.join(fpath, fid), cv2.IMREAD_GRAYSCALE)
+                    # image = cv2.resize(image, dsize=(TARGET_IMG_SIZE, TARGET_IMG_SIZE))
+                    # image = image / 255
                     image = Image.open(os.path.join(fpath, fid))
                     image = image.resize((TARGET_IMG_SIZE, TARGET_IMG_SIZE))
                     image = img_to_tensor(image)
@@ -314,10 +406,24 @@ class FingerprintName(FingerprintDataset):
                     datapath_all[subject] = subject_dict
 
         # save
+
         f = open('./datapaths/datapath_{}_'.format(name) + 'test' + '.pkl', 'wb')
         pickle.dump(datapath_all, f)
         print(datapath_all)
         print('./datapaths/datapath_{}_'.format(name) + 'test' + '.pkl')
+        #
+        # data = np.asarray(data)  # (1608, 224, 352, 3)
+        # print(datapath_all)
+        # '''
+        # data_new = torch.zeros(data.shape[0], data.shape[1], data.shape[2])
+        # for i in range(data.shape[0]):
+        #     data_new[i, ...] = gray(img_to_tensor(data[i, ...])).squeeze()
+        # data = data_new  # (1608, 224, 352, 1)
+        # '''
+        #
+        # subject_id = np.asarray(subject_id)  # (1608,)
+        # fingerprint_id = np.asarray(fingerprint_id)  # (1608,)
+        # return data, subject_id, fingerprint_id
 
 class FingerprintVeri(FingerprintDataset):
     def __init__(self, pkl_path, num):
@@ -355,6 +461,8 @@ class Gray(object):
 
     def __call__(self, tensor):  # tensor: 3 * w * h
         # TODO: make efficient
+        if tensor.shape[0] == 1:
+            return tensor
         _, w, h = tensor.shape
         R = tensor[0]
         G = tensor[1]

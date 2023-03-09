@@ -38,7 +38,7 @@ def eig2image(Dxx, Dxy, Dyy):
     Dyy = np.array(Dyy, dtype=float)
     Dxy = np.array(Dxy, dtype=float)
     if (len(Dxx.shape) != 2):
-        print("len(Dxx.shape)!=2,Dxx is not a two-dimensional matrix!")
+        print("len(Dxx.shape)!=2, the dimension of Dxx is not 2!")
         return 0
 
     tmp = np.sqrt((Dxx - Dyy) ** 2 + 4 * Dxy ** 2)
@@ -80,7 +80,7 @@ def FrangiFilter2D(I):
     options = defaultoptions
 
     sigmas = np.arange(options['FrangiScaleRange'][0], options['FrangiScaleRange'][1], options['FrangiScaleRatio'])
-    sigmas.sort()  # 升序
+    sigmas.sort() 
 
     beta = 2 * pow(options['FrangiBetaOne'], 2)
     c = 2 * pow(options['FrangiBetaTwo'], 2)

@@ -333,7 +333,7 @@ class ResNet(nn.Module):
         super(ResNet, self).__init__()
         net = models.resnet50(pretrained=True)
         net.classifier = nn.Sequential()
-        net.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)  # in_channels = 1
+        net.conv1 = nn.Conv2d(3, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)  # in_channels = 1
         self.features = net
         # classifier of classification model
         self.classifier = nn.Sequential(
@@ -539,6 +539,9 @@ class Siamese(nn.Module):
         x2 = self.custom_cnn(x2)
         '''
         return x1, x2
+    
+    def load_state_dict(self, path = "./best_models/clean_split_1009.pth"):
+        self.resnet.load_state_dict(torch.load(path))
 
 def load_weights(mdl, name):
     """Download pretrained state_dict and load into model.

@@ -1,8 +1,8 @@
 import numpy as np
 import cv2
 import torch
-# from convolutions import Conv2d
-from torch.nn import Conv2d
+from convolutions import Conv2d
+# from torch.nn import Conv2d
 
 
 class Gray(object):
@@ -36,6 +36,8 @@ class ridge_orient(object):
 
         fy, fx = np.gradient(f)  # Gradient of Gaussian
 
+        # Gx = signal.convolve2d(self._normim, fx, mode='same')
+        # Gy = signal.convolve2d(self._normim, fy, mode='same')
         from torch.nn.parameter import Parameter
         Cx = Conv2d(in_channels=1, out_channels=1, kernel_size=fx.shape[0]).cuda()
         Cy = Conv2d(in_channels=1, out_channels=1, kernel_size=fy.shape[0]).cuda()
@@ -49,6 +51,8 @@ class ridge_orient(object):
         Gy = Cy(_normim)
         _normim = _normim.squeeze()
 
+        # Gxx = np.power(Gx,2)
+        # Gyy = np.power(Gy,2)
         Gxx = torch.pow(Gx, 2)
         Gyy = torch.pow(Gy, 2)
         Gxy = Gx * Gy
@@ -89,6 +93,7 @@ class ridge_orient(object):
         cos2theta = C(cos2theta).squeeze()
         sin2theta = C(sin2theta).squeeze()
 
+        # self._orientim = np.pi/2 + np.arctan2(sin2theta,cos2theta)/2
         _orientim = torch.tensor(np.pi) / 2 + torch.atan2(sin2theta, cos2theta) / 2
 
         return _orientim

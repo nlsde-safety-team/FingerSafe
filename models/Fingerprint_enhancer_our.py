@@ -759,8 +759,8 @@ class FingerprintImageEnhancer_tensor(object):
         # main function to enhance the image.
         # calls all other subroutines
 
-        gray = Gray()
-        img = gray(img)
+        # gray = Gray()
+        # img = gray(img)
 
         if (len(img.shape) > 2):  # convert image into gray if necessary
             img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -772,6 +772,7 @@ class FingerprintImageEnhancer_tensor(object):
             new_cols = new_rows / aspect_ratio
 
             img = cv2.resize(img, (np.int(new_cols), np.int(new_rows)))
+        img = torch.tensor(img).float().cuda()
 
         self.__ridge_segment(img)   # normalise the image and find a ROI
         self.__ridge_orient()       # compute orientation image

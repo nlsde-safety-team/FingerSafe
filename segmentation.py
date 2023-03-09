@@ -118,15 +118,29 @@ def rotate(mat, angle):
     rotation_mat = cv2.getRotationMatrix2D(image_center, angle, 1)
 
     radians = math.radians(angle)
-    sin = math.sin(radians)
-    cos = math.cos(radians)
-    bound_w = int((height * abs(sin)) + (width * abs(cos)))
-    bound_h = int((height * abs(cos)) + (width * abs(sin)))
+    # sin = math.sin(radians)
+    # cos = math.cos(radians)
+    # bound_w = int((height * abs(sin)) + (width * abs(cos)))
+    # bound_h = int((height * abs(cos)) + (width * abs(sin)))
 
-    rotation_mat[0, 2] += ((bound_w / 2) - image_center[0])
-    rotation_mat[1, 2] += ((bound_h / 2) - image_center[1])
+    # rotation_mat[0, 2] += ((bound_w / 2) - image_center[0])
+    # rotation_mat[1, 2] += ((bound_h / 2) - image_center[1])
 
-    rotated_mat = cv2.warpAffine(mat, rotation_mat, (bound_w, bound_h))
+    # rotated_mat = cv2.warpAffine(mat, rotation_mat, (bound_w, bound_h))
+
+    cos = np.abs(rotation_mat[0, 0])
+    sin = np.abs(rotation_mat[0, 1])
+
+    new_w = height * sin + width * cos
+    new_h = height * cos + width * sin
+
+    rotation_mat[0, 2] += new_w * 0.5 - image_center[0]
+    rotation_mat[1, 2] += new_h * 0.5 - image_center[1]
+
+    w = int(np.round(new_w))
+    h = int(np.round(new_h))
+
+    rotated_mat = cv2.warpAffine(mat, rotation_mat, (w, h))
     return rotated_mat
 
 
@@ -147,7 +161,6 @@ def get_truncate(img, mask):
 
 
 def segment(img_BGR, trun):
-    # very naive fingerprint segmentation algorithm
     # ---- MAIN ----#
     # read in image into openCV BGR and grayscale
     # image_path = "./segment/single.jpg"
@@ -164,6 +177,10 @@ def segment(img_BGR, trun):
     Cr = img_YCC[..., 2]
     H = img_HSV[..., 0]
 
+
+    cv2.imwrite('./segment/test/Cr.jpg', Cr)
+    cv2.imwrite('./segment/test/H.jpg', H)
+
     # convert to CMYK
     # Extract channels
     img_BGR = img_BGR.astype('float') / 255.
@@ -177,17 +194,23 @@ def segment(img_BGR, trun):
     threshold_value_Cr, threshold_image_Cr = cv2.threshold(Cr, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
     threshold_value_H, threshold_image_H = cv2.threshold(H, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
 
+    cv2.imwrite('./segment/test/thres_Cr.jpg', threshold_image_Cr)
+    cv2.imwrite('./segment/test/thres_H.jpg', threshold_image_H)
 
     mask_H_binary = threshold_image_H / 255
     mask_Cr_binary = threshold_image_Cr / 255
     threshold_image_binary = cv2.bitwise_and(mask_H_binary, mask_Cr_binary)
     threshold_image = (threshold_image_binary * 255).astype('uint8')
 
-    kernel_size = 21
+    cv2.imwrite('./segment/test/thres.jpg', threshold_image)
+
+    # kernel_size = 31  
+    kernel_size = 31  
     kernel = np.ones((kernel_size, kernel_size), np.uint8)
     # dilation and erode to eliminate spurious features
     threshold_image = cv2.erode(threshold_image, kernel, iterations=1)
     threshold_image = cv2.dilate(threshold_image, kernel, iterations=1)
+    cv2.imwrite('./segment/test/thres_erode.jpg', threshold_image)
 
     # find contours and return the largest
     contours, hierarchy = cv2.findContours(threshold_image, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
@@ -201,29 +224,36 @@ def segment(img_BGR, trun):
         if k != max_idx:
             cv2.fillPoly(threshold_image, [contours[k]], 0)
 
+    cv2.imwrite('./segment/test/thres_contours.jpg', threshold_image)
+
     threshold_image_binary = threshold_image / 255
     threshold_image_binary = np.repeat(threshold_image_binary[:, :, np.newaxis], 3, axis=2)
     img_face_only = np.multiply(threshold_image_binary, img_BGR)
 
     # mask select the image so now only fingerprint area is retained
     w1, w2, h1, h2 = get_mask(threshold_image_binary)
-    fin_img = img_BGR[w1: w2, h1: h2]
+    # fin_img = img_face_only[w1: w2, h1: h2] 
+    fin_img = img_BGR[w1: w2, h1: h2] 
     fin_mask = threshold_image_binary[w1: w2, h1: h2]
     position = (w1, w2, h1, h2)
 
-    # estimate rotation. deprecated.
-    # theta = get_rotation(fin_mask)
-    # fin_img = rotate(fin_img, (theta * 180) / np.pi - 90)
-    # fin_mask = rotate(fin_mask, (theta * 180) / np.pi - 90)
-    # fin_img = rotate(fin_img, (theta * 180) / np.pi)
-    # fin_mask = rotate(fin_mask, (theta * 180) / np.pi)
+    cv2.imwrite('./segment/test/before_rotate_mask.jpg', fin_mask * 255)
+
+    theta = get_rotation(fin_mask)
+    fin_img = rotate(fin_img, (theta * 180) / np.pi - 90)
+    fin_mask = rotate(fin_mask, (theta * 180) / np.pi - 90)
+    fin_img = rotate(fin_img, (theta * 180) / np.pi)
+    fin_mask = rotate(fin_mask, (theta * 180) / np.pi)
     fin_img = np.array(fin_img * 255).astype('uint8')
     fin_mask = np.array(fin_mask * 255).astype('uint8')
+    cv2.imwrite('./segment/test/rotate_mask.jpg', fin_mask)
 
     # cut the rotated image
     w1, w2, h1, h2 = get_mask(fin_mask)
-    fin_img = fin_img[w1: w2, h1: h2]  # BGR, w*h*
-    fin_mask = fin_mask[w1: w2, h1: h2]
+    fin_img = fin_img  # [w1: w2, h1: h2]  # BGR, w*h*
+    fin_mask = fin_mask  # [w1: w2, h1: h2]
+
+    fin_img = fin_img * (fin_mask / 255)
 
     # display_image(fin_img, 'fi')
     # display_image(fin_mask, 'fm')
@@ -240,14 +270,16 @@ def segment(img_BGR, trun):
     # return final_img, final_mask, (position, trun_index), img_BGR  # todo return
 
     print(position)
-    cv2.imwrite('./segment/raw.jpg', img_BGR*255)
-    cv2.imwrite('./segment/mask.jpg', final_img)
-    cv2.imwrite('./segment/left_img.jpg', final_mask)
+    cv2.imwrite('./segment/test/raw.jpg', img_BGR*255)
+    cv2.imwrite('./segment/test/mask.jpg', final_img)
+    cv2.imwrite('./segment/test/left_img.jpg', final_mask)
+    # display_image(threshold_image, "thresholded image")
+    # display_image(img_face_only, "segmented BGR")
     from process_dataset import IJCB2015
-    cv2.imwrite('./segment/MHS.jpg', IJCB2015(cv2.cvtColor(final_img, cv2.COLOR_BGR2GRAY)))
+    ijcb = IJCB2015(cv2.cvtColor(final_img.astype(np.uint8), cv2.COLOR_BGR2GRAY))
+    cv2.imwrite('./segment/test/MHS.jpg', ijcb)
 
 
-# get the protected fingerprint images to its place in raw image
 def reverse_segment(fin_image, raw_pic, clean_pic, pos):
     ((w1, w2, h1, h2), thun) = pos
     print(pos)
@@ -260,6 +292,6 @@ def reverse_segment(fin_image, raw_pic, clean_pic, pos):
 
 
 if __name__ == '__main__':
-    image_path = "./segment/flower.JPG"
+    image_path = "./segment/test2.JPG"
     img_BGR = cv2.imread(image_path, 3)
-    segment(img_BGR, trun=1)
+    segment(img_BGR, trun=1.35)

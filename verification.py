@@ -1,12 +1,20 @@
+#%% md
+
+### facenet-pytorch LFW evaluation
+# This notebook demonstrates how to evaluate performance against the LFW dataset.
+
+#%%
+
 # from facenet_pytorch import MTCNN, InceptionResnetV1, fixed_image_standardization, training, extract_face
 import torch
 from torch.utils.data import DataLoader, SubsetRandomSampler, SequentialSampler
 from torchvision import datasets, transforms
 import numpy as np
 import os
-from models.inception_resnet_v1 import ResNet as ResNet
+from models.inception_resnet_v1 import ResNet, DenseNet, Inceptionv3
 from data import DataSampler,  DataSampler_adv
 import matplotlib.pyplot as plt
+import argparse
 
 #### Evaluate embeddings by using distance metrics to perform verification on the official LFW veri_test set.
 """
@@ -18,6 +26,7 @@ added functionality to return false positive and false negatives
 
 from sklearn.model_selection import KFold
 from scipy import interpolate
+os.environ["CUDA_VISIBLE_DEVICES"]="2"
 
 # LFW functions taken from David Sandberg's FaceNet implementation
 import math
@@ -125,12 +134,50 @@ def evaluate_lsm(iterations, embeddings1, embeddings2, issame, embedding_size=10
     # /2: half of the labels are not positive
     tpr = True_Positive[margin_index] / (iterations * len(label) / 2)
     fpr = False_Positive / (False_Positive + True_Negative)
-    gen_plot(fpr, recall)
+    gen_plot(fpr, 1 - recall)
     # print(True_Positive[margin_index], True_Negative[margin_index], False_Positive[margin_index], False_Negative[margin_index])
     print(avg_loss / iterations, tpr, F1_score_max, precision_max, recall_max, accuracy_max, threshold_final)
     # print("acc={}, tpr={}, fpr={}, precision={}, F1_score={}, recall={}"
     #       .format(accuracy_max, tpr, fpr, precision_max, F1_score_max, recall_max))
     return avg_loss / iterations, tpr, accuracy_max, threshold_final
+
+def evaluate_save(iterations, embeddings1, embeddings2, issame, embedding_size=1000, method='fingersafe'):
+    from criterion import Criterion
+    criterion = Criterion()
+    avg_loss = 0
+    True_Positive, True_Negative, False_Negative, False_Positive = torch.zeros(embedding_size), torch.zeros(
+        embedding_size), torch.zeros(embedding_size), torch.zeros(embedding_size)
+    batch = 8
+    with torch.no_grad():
+        for e in range(iterations):
+            # siamese_1, siamese_2, label = veri_sampler.sample()
+            # siamese_1, siamese_2, label = siamese_1.cuda(), siamese_2.cuda(), label.cuda()
+
+            # output1 = model(siamese_1)
+            # output2 = model(siamese_2)
+            output1 = embeddings1[e * batch: (e + 1) * batch]
+            output2 = embeddings2[e * batch: (e + 1) * batch]
+            label = issame[e * batch: (e + 1) * batch]
+
+            euc_dist = criterion(output1, output2, label)
+
+            # avg_loss = avg_loss + float(loss.item())
+
+            threshold, tp, tn, fn, fp = criterion.calculate_metric_tensor(euc_dist, label, size=embedding_size)
+
+            True_Positive += tp
+            True_Negative += tn
+            False_Positive += fp
+            False_Negative += fn
+
+    tpr = True_Positive / (iterations * batch / 2)
+    fpr = False_Positive / (iterations * batch / 2)
+    tnr = True_Negative / (iterations * batch / 2)
+    fnr = False_Negative / (iterations * batch / 2)
+    np.save('./roc_det/{}_tpr.npy'.format(method), tpr.detach().cpu().numpy())
+    np.save('./roc_det/{}_fpr.npy'.format(method), fpr.detach().cpu().numpy())
+    np.save('./roc_det/{}_tnr.npy'.format(method), tnr.detach().cpu().numpy())
+    np.save('./roc_det/{}_fnr.npy'.format(method), fnr.detach().cpu().numpy())
 
 
 def test_final(iterations, embeddings1, embeddings2, issame,  thres):
@@ -160,6 +207,9 @@ def test_final(iterations, embeddings1, embeddings2, issame,  thres):
                 True_Positive + True_Negative + False_Positive + False_Negative)
         precision = True_Positive / (True_Positive + False_Positive)
         print('veri_test loss:{:.4f}, threshold:{:.4f}, tpr:{:.4f}, acc:{:.4f}'.format(float(avg_loss / iterations),
+                                                                       float(margin_test), float(tpr), float(accuracy)))
+        with open('verification_result.txt', 'a') as f:
+            f.write('veri_test loss:{:.4f}, threshold:{:.4f}, tpr:{:.4f}, acc:{:.4f}\n\n'.format(float(avg_loss / iterations),
                                                                        float(margin_test), float(tpr), float(accuracy)))
 
     # True_Positive = True_Positive / (iterations * len(label) / 2)
@@ -249,14 +299,14 @@ def evaluate(embeddings1, embeddings2, actual_issame, nrof_folds=4, distance_met
     return tpr[best_index], fpr, np.mean(accuracy)  #, val, val_std, far, fp, fn
 
 
-def gen_plot(fpr, tpr):
+def gen_plot(fpr, fnr):
     """Create a pyplot plot and save to buffer."""
     plt.figure()
     plt.xlabel("FPR", fontsize=14)
-    plt.ylabel("TPR", fontsize=14)
-    plt.title("ROC Curve-perturb_fingeradv0912B", fontsize=14)
-    plot = plt.plot(fpr, tpr, linewidth=2)
-    plt.savefig('ROC_fingeradv_test.jpg')
+    plt.ylabel("FNR", fontsize=14)
+    plt.title("ROC Curve-clean", fontsize=14)
+    plot = plt.plot(fpr, fnr, linewidth=2)
+    plt.savefig('ROC_clean_test.jpg')
     plt.close()
 
 
@@ -271,6 +321,8 @@ def get_valid_data(pkl_path, pkl_path_adv=None, flag=False, num=68):
 
     np.random.seed(0)
     siamese_1, siamese_2, label, ad1, ad2 = data_sampler.sample(flag=flag)
+    if pkl_path_adv != None:
+        print(ad2[0])
 
     valid_1 = siamese_1
     valid_2 = siamese_2
@@ -293,7 +345,7 @@ def cal_embed(valid_1, valid_2, model, embedding_size, device):
     embedding_1 = np.zeros([len(valid_1), embedding_size])
     embedding_2 = np.zeros([len(valid_2), embedding_size])
     model.eval()
-    model.classify = False  # embedding计算的是表示空间，不用分类
+    model.classify = False
     with torch.no_grad():
         while idx + batch_size <= len(embedding_1):
             batch = valid_1[idx:idx + batch_size].clone().detach()
@@ -331,77 +383,106 @@ def validate(model, device, test_loader):
     return test_loss, 100. * correct / len(test_loader.dataset)
 
 
-def Scat(valid_1, valid_2, size=1*81*6*6):
+def Scat(valid_1, valid_2, size=1*81*12*12):
     from kymatio import Scattering2D
     scattering = Scattering2D(J=2, shape=(50, 50))
-    if torch.cuda.is_available():
-        print("Move scattering to GPU")
-        scattering = scattering.cuda()
-        device = 'cuda'
+    # if torch.cuda.is_available():
+    #     print("Move scattering to GPU")
+    #     scattering = scattering.cuda()
+    #     device = 'cuda'
 
     batch_size = 4
     idx = 0
     embedding_size = size
-    embedding_1 = np.zeros([len(valid_1), embedding_size])
-    embedding_2 = np.zeros([len(valid_2), embedding_size])
+    embedding_1 = torch.zeros([len(valid_1), embedding_size])
+    embedding_2 = torch.zeros([len(valid_2), embedding_size])
     with torch.no_grad():
         while idx + batch_size <= len(embedding_1):
-            batch = valid_1[idx:idx + batch_size].clone().detach()
-            emb = scattering(batch.cuda()).cpu()
+            batch = valid_1[idx:idx + batch_size].clone().detach().cpu().numpy()
+            emb = scattering(batch)
+            emb = torch.from_numpy(emb)
             embedding_1[idx:idx + batch_size] = emb.view(emb.size(0), -1)
-            batch = valid_2[idx:idx + batch_size].clone().detach()
-            emb = scattering(batch.cuda()).cpu()
+            batch = valid_2[idx:idx + batch_size].clone().detach().cpu().numpy()
+            emb = scattering(batch)
+            emb = torch.from_numpy(emb)
             embedding_2[idx:idx + batch_size] = emb.view(emb.size(0), -1)
             idx += batch_size
-    embedding_1 = torch.from_numpy(embedding_1).to(device)
-    embedding_2 = torch.from_numpy(embedding_2).to(device)
+    embedding_1 = embedding_1.to(device)
+    embedding_2 = embedding_2.to(device)
     return embedding_1, embedding_2
 
 
 if __name__ == '__main__':
     """
-    used in verification, calculate verification TPR
-    change following parameters when you use it:
-    - weight_name: directory of trained model
-    - root: save the .pkl file in clean samples
-    - adv_type: type of protection
-    - root_adv: the saved .pkl file for all paths for adv sample directory
-    - embedding_size: embedding shape in different backbone. normally we use resnet=1000
-    - can use scatnet for feature extraction
+    For verification, calculating the verification TPR
+    - weight_name: the saved parameters of the model to load
+    - backbone: the backbone to evaluate, selecting from ['ResNet', 'InceptionV3', 'DenseNet', 'ScatNet']
     """
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--weight', '-w', type=str,
+                        help='name of loading model', default="./best_models/clean_split_1009.pth")
+    parser.add_argument('--root_clean', '-rc', type=str,
+                        help='root of clean data',
+                        default="./datapaths/datapath_clean_test.pkl")
+    parser.add_argument('--root_adv', '-ra', type=str,
+                        help='root of adv data',
+                        default="./datapaths/datapath_fingersafe_test.pkl")
+    parser.add_argument('--backbone', '-b', type=str, default='ResNet')
+    parser.add_argument('--method', type=str, default='clean')
+    args = parser.parse_args()
+    with open('verification_result.txt', 'a') as f:
+        f.write('root_adv: ' + args.root_adv + ', backbone: ' + args.backbone + '\n')
+
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     print('Running on device: {}'.format(device))
 
-    resnet = ResNet(
-        classify=False,
-        nclasses=268
-    ).to(device)
-    weight_name = './best_models/MHS_clean_best_1030.pth'
-    print(weight_name)
-    resnet.load_state_dict(torch.load(weight_name))
-    resnet.eval()
+    if args.backbone == 'ResNet':
+        model = ResNet( 
+            classify=False,
+            nclasses=268
+        ).to(device)
+        embedding_size = 1000
+    elif args.backbone == 'DenseNet':
+        model = DenseNet(
+            classify=False, 
+            nclasses=268
+        ).to(device)
+        embedding_size = 1024
+    elif args.backbone == 'InceptionV3':
+        model = Inceptionv3(
+            classify=False,
+            nclasses=268
+        ).to(device)
+        embedding_size = 2048
+    if args.backbone in ['ResNet', 'DenseNet', 'InceptionV3']:
+        weight_name = args.weight
+        print(weight_name)
+        model.load_state_dict(torch.load(weight_name))
+        model.eval()
 
-    root = './datapaths/datapath_MHS_clean_test.pkl'  # clean
-    clean_1, clean_2, issame_clean, _, _ = get_valid_data(root, num=68)
+    root_clean = args.root_clean  # str, clean
+    clean_1, clean_2, issame_clean, _, _ = get_valid_data(root_clean, num=68)
 
-    adv_type = ['fingersafe']
-    for a in adv_type:
-        root_adv = './datapaths/datapath_MHS_{}_test.pkl'.format(a)  # adv
-        valid_1, valid_2, issame_list, _, _ = get_valid_data(root, root_adv, num=68)
+    root_adv = args.root_adv  # adv
+    valid_1, valid_2, issame_list, _, _ = get_valid_data(root_clean, root_adv, num=68)
+    print(clean_1.shape, clean_2.shape, valid_1.shape, valid_2.shape)
 
-        # embedding size: resnet=1000, densenet=1024, inceptionV3=2048
-        embedding1, embedding2 = cal_embed(valid_1, valid_2, resnet, embedding_size=1000, device=device)
-        emb_clean1, emb_clean2 = cal_embed(clean_1, clean_2, resnet, embedding_size=1000, device=device)
+    if args.backbone in ['ResNet', 'DenseNet', 'InceptionV3']:
+        embedding1, embedding2 = cal_embed(valid_1, valid_2, model, embedding_size=embedding_size, device=device)
+        emb_clean1, emb_clean2 = cal_embed(clean_1, clean_2, model, embedding_size=embedding_size, device=device)
+    elif args.backbone == 'ScatNet':
+        embedding1, embedding2 = Scat(valid_1, valid_2, size=11664)
+        emb_clean1, emb_clean2 = Scat(clean_1, clean_2, size=11664)
 
-        # used for scatnet. remember the input shape should be 50*50
-        # embedding1, embedding2 = Scat(valid_1, valid_2, size=11664)
-        # emb_clean1, emb_clean2 = Scat(clean_1, clean_2, size=11664)
+    # # evaluate_save(201, emb_clean1, emb_clean2, issame_clean.to(device))
+    # evaluate_save(201, embedding1, embedding2, issame_list.to(device), method=args.method)
+    # exit(0)
 
-        eval_loss, tpr, accuracy, thrsh = evaluate_lsm(201, emb_clean1, emb_clean2, issame_clean.to(device))
-        test_final(201, embedding1, embedding2, issame_list, thrsh)
+    eval_loss, tpr, accuracy, thrsh = evaluate_lsm(201, emb_clean1, emb_clean2, issame_clean.to(device))
+    test_final(201, embedding1, embedding2, issame_list, thrsh)
 
-        print('acc:{}'.format(accuracy))
-        print('tpr:{}'.format(tpr))
+    print('acc:{}'.format(accuracy))
+    print('tpr:{}'.format(tpr))
 
 
 

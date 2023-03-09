@@ -1,7 +1,7 @@
 """
   Purpose:  Train and save network weights
 """
-
+import argparse
 import os
 import torch
 import torch.nn.functional as F
@@ -43,7 +43,7 @@ def train_all(type, device, dataroot, batch_size, epochs, valid_1, valid_2, issa
                               batch_size=batch_size,
                               shuffle=True)
 
-    model = Model(classify=True, nclasses=268).to(device)  # 训练神经网络，依据facenet代码，classify=True，
+    model = Model(classify=True, nclasses=268).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 
     best_acc = 0.0
@@ -57,17 +57,16 @@ def train_all(type, device, dataroot, batch_size, epochs, valid_1, valid_2, issa
         eval_loss, tpr, accuracy, thrsh = evaluate_lsm(201, embedding1, embedding2, issame_list.to(device), embedding_size)
         print('verification acc = {}'.format(accuracy))
 
-        # 用当前模型测一下在干净样本下的verification和identification--->training stage任务
-        iden_acc = identify(database_set, query_set, model, embedding_size)  # here is identify acc
+        iden_acc = identify(database_set, query_set, model, embedding_size)
         print('clean iden_acc = {}'.format(iden_acc))
         emb_clean1, emb_clean2 = cal_embed(clean_1, clean_2, model, embedding_size=embedding_size, device=device)
         _, veri_tpr, veri_acc, _ = evaluate_lsm(201, emb_clean1, emb_clean2, issame_clean.to(device), embedding_size)
         print('clean veri_acc = {}, clean_veri_tpr={}'.format(veri_acc, veri_tpr))
 
-        # 根据verification acc来决定保存最优模型
+        # save the parameters of the model according to the best performence of acc in verification
         if accuracy >= best_acc and epoch > 2:
             best_acc = accuracy
-            file_name = 'workshop_{}_best.pth'.format(type)
+            file_name = '{}_best.pth'.format(type)
             torch.save(model.state_dict(), os.path.join("saved_models", file_name))
             print("Saved: ", file_name)
 
@@ -75,33 +74,43 @@ def train_all(type, device, dataroot, batch_size, epochs, valid_1, valid_2, issa
 
 def main():
     """
-    train a DNN for fingerprint classification
-    train_root: training sample (268 class in HKPolyU), splitted as train/test.
-    test_root: testing sample (.pkl file of test set in 268 class), used to evaluate the verification result in sample.
-    clean_dataroot, adv_dataroot, database_set, query_set: test the identification accuracy of this model. no need to change this.
+    Train a network that can identify and verify the fingerprints
+    train_path: the path of training sets
+    test_pkl: the path of the map which organizes the testing set
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    batch_size = 4
-    epochs = 30
-    types = ['strong', 'weak']  # clean_split = train_split
+    # 参数
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--batch_size', '-b', type=int,
+                        help='batch size', default=4)
+    parser.add_argument('--epochs', '-e', type=int,
+                        help='the number of epoch for training process', default=30)
+    parser.add_argument('--adv', '-a', type=str,
+                        help='type of adv data',
+                        default="clean")
+    parser.add_argument('--train_path',  type=str,
+                        help='path of training data',
+                        default="./datasets/final/clean_split")
+    parser.add_argument('--test_pkl', type=str,
+                        help='path of testing data',
+                        default="./datapaths/datapath_valid_clean_test.pkl")
+    args = parser.parse_args()
 
-    for type in types:
-        print(type)
-        dir = './datasets/final/'
-        train_root = 'perturb_workshop_{}_split'.format(type)
-        dataroot = os.path.join(dir, train_root)
-        test_root = './datapaths/datapath_valid_workshop_{}'.format(type) + '_test.pkl'
-        # sample image pair from test_root
-        valid_1, valid_2, issame_list, _, _ = get_valid_data(test_root, flag=True)
-        # sample clean pair from dataroot
-        clean_1, clean2, issame_clean, _, _ = get_valid_data('./datapaths/datapath_clean_test.pkl')
-        clean_dataroot = './datasets/final_identification/iden_clean'
-        adv_dataroot = './datasets/final_identification/iden_clean'
-        database_set = FingerprintTest(clean_dataroot, 'training')  # keep clean
-        query_set = FingerprintTest(adv_dataroot, 'testing')  # training = clean
-        train_all(type, device, dataroot, batch_size, epochs,
-                                                    valid_1, valid_2, issame_list, clean_1, clean2, issame_clean,
-                                                    database_set, query_set)
+    batch_size = args.batch_size  # 4
+    epochs = args.epochs  # 30
+    adv = args.adv  # 'fingersafe'  # clean_split = train_split
+    train_path = args.train_path
+    test_pkl = args.test_pkl
+    valid_1, valid_2, issame_list, _, _ = get_valid_data(test_pkl, flag=True)
+    clean_1, clean2, issame_clean, _, _ = get_valid_data("./datapaths/datapath_clean_test.pkl")
+    clean_dataroot = './datasets/final_identification/iden_clean'
+    adv_dataroot = './datasets/final_identification/iden_clean'
+    database_set = FingerprintTest(clean_dataroot, 'training')  # keep clean
+    query_set = FingerprintTest(adv_dataroot, 'testing')  # keep clean
+    train_all(adv, device, train_path, batch_size, epochs,
+                                                valid_1, valid_2, issame_list, clean_1, clean2, issame_clean,
+                                                database_set, query_set)
+
 
 if __name__ == '__main__':
     main()

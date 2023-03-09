@@ -14,9 +14,11 @@ from FingerSafe import FingerSafe
 import random
 import segmentation
 from L_orientation import ridge_orient
+import argparse
+# https://github.com/MadryLab/mnist_challenge/blob/master/pgd_attack.py
+os.environ["CUDA_VISIBLE_DEVICES"]="1"
 
-
-def export(paths, images, position=None, raw_pics=None):
+def export(paths, images, position=None, raw_pics=None, output='sample_fingersafe_gamma_10000'):
     unloader = torchvision.transforms.ToPILImage()
     # rgb2bgr = [2, 1, 0]
     # images = images[:, rgb2bgr, :, :]
@@ -25,10 +27,13 @@ def export(paths, images, position=None, raw_pics=None):
         if p.find('train') != -1:
             new_path = p.replace('train', 'perturb_tmp_I')
         else:
-            new_path = p.replace('test', 'sample_iter5')
+            new_path = p.replace('test', output)
 
-        if not os.path.exists('datasets/final/veri_sample_iter5'):
-            os.mkdir('datasets/final/veri_sample_iter5')
+        # if not os.path.exists('datasets/fingerprint_verification/perturb_fingeradv_0912C'):
+        #     os.mkdir('datasets/fingerprint_verification/perturb_fingeradv_0912C')
+
+        if not os.path.exists('datasets/final/veri_' + output):
+            os.mkdir('datasets/final/veri_' + output)
 
         if not os.path.exists(new_path):
             print('creating:' + os.path.dirname(new_path))
@@ -42,38 +47,88 @@ def export(paths, images, position=None, raw_pics=None):
 
 
 def run_adv():
-    attack_on_data = 'test'
-    print('adversarial attacking: FingerSafe')
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--batch_size', '-b', type=int,
+                        help='batch size', default=6)
+    parser.add_argument('--dataroot', '-d', type=str,
+                        help='root of loading data',
+                        default="./datasets/final/veri_test")
+    parser.add_argument('--mask', '-m', type=str,
+                        help='root of mask of fingers in physical world experiment',
+                        default="./datasets/physical_square/masks/evaluation")
+    parser.add_argument('--epsilon', '-e', type=float,
+                        default=8./255.)
+    parser.add_argument('--output', type=str, default='sample_fingersafe_gamma_10000')
+    parser.add_argument('--lowkey_lpips', type=float, default=5.0)
+    parser.add_argument('--method', type=str, default='fingersafe')
+    parser.add_argument('--gamma', type=float, default=500)
+    parser.add_argument('--gauss', type=int, default=7)
+    parser.add_argument('--sigma', type=int, default=3)
+    parser.add_argument('--victim', type=str, default='ResNet')
+    args = parser.parse_args()
 
+    draw = False
+
+    attack_on_data = 'test'
+    if args.method == 'fingersafe':
+        print('adversarial attacking: FingerSafe, gamma: {}, victim: {}'.format(args.gamma, args.victim))
+    else:
+        print('adversarial attacking: Lowkey, lpips: {}, gauss: {}, sigma: {}'.format(args.lowkey_lpips, args.gauss, args.sigma))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    dataroot = './datasets/final/veri_test'
+    batch_size = args.batch_size
+    dataroot = args.dataroot
     dataset = FingerprintAdv(dataroot, phase=attack_on_data)
-    batch_size = 6
+    # todo：physical word
+    # root_mask = args.mask
+    # dataset = Fingerprint_Mask(dataroot, root_mask, phase=attack_on_data)
 
     adv_loader = DataLoader(dataset=dataset,
                             batch_size=batch_size,
                             shuffle=False)
 
-    model = Model(nclasses=268, classify=False).to(device)
-    model.load_state_dict(torch.load("./best_models/clean_split_1009.pth"))
+    if args.victim == 'ResNet':
+        model = Model(nclasses=268, classify=False).to(device)
+        model.load_state_dict(torch.load("./best_models/clean_split_1009.pth"))
+    elif args.victim == 'DenseNet':
+        model = DenseNet(nclasses=268, classify=False).to(device)
+        model.load_state_dict(torch.load("./best_models/densenet_clean_best.pth"))
+    else:
+        model = Inceptionv3(nclasses=268, classify=False).to(device)
+        model.load_state_dict(torch.load("./best_models/inception_clean_best.pth"))
+
+    # todo Lowkey
+    if args.method != 'fingersafe':
+        inception = Inceptionv3(nclasses=268, classify=False).to(device)
+        inception.load_state_dict(torch.load("./best_models/inception_clean_best.pth"))
+        densenet = DenseNet(nclasses=268, classify=False).to(device)
+        densenet.load_state_dict(torch.load("./best_models/densenet_clean_best.pth"))
 
     for param in model.parameters():
         param.requires_grad = False
 
-    epsilon = 8. / 255.
-    # FingerSafe
-    attacker = FingerSafe(model, device, eps=epsilon, alpha=epsilon / 10, steps=5, random_start=True)
+    epsilon = args.epsilon
+    if args.method == 'fingersafe':
+        attacker = FingerSafe(model, device, eps=epsilon, alpha=epsilon / 10, steps=20, random_start=True, gamma=args.gamma, draw_convergence=draw)
+    else:
+        attacker = FingerSafe(model, device, eps=epsilon, alpha=0.0025, steps=20, random_start=True, inc=inception, dense=densenet, gauss_1=args.gauss, gauss_sigma=args.sigma, draw_convergence=draw)
 
-    # attacking polyU
     start = time.time()
     for i, (data, _, path) in enumerate(adv_loader):
-        adv_images = attacker(data)
-        export(path, adv_images)
+        if args.method == 'fingersafe':
+            adv_images = attacker(data)
+        else:
+            adv_images = attacker.forward_lowkey(data, lowkey_lpips=args.lowkey_lpips)
+        export(path, adv_images, output=args.output)
     end = time.time()
     print(end - start)
     exit(0)
 
+    # todo attacking physical
+
+    # for i, (data, _, path, masks) in enumerate(adv_loader):
+    #     adv_images = attacker(data, masks)
+        # export(path, adv_images)
 
 def cal_orient(images):
     ridge = ridge_orient()
@@ -84,7 +139,6 @@ def cal_orient(images):
     mean_orient = [o.cpu().numpy() for o in mean_orient]
     mean_orient = np.mean(np.array(mean_orient), axis=0)  # 224*224
     return torch.from_numpy(mean_orient)
-
 
 def find_target(x, target_set, model):
     target_emb = []
@@ -155,7 +209,6 @@ class Gray(object):
         tensor = tmp
         tensor = tensor.view(1, w, h)
         return tensor
-
 
 if __name__ == '__main__':
     run_adv()

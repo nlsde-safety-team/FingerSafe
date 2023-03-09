@@ -66,6 +66,30 @@ else:
     from six.moves.urllib.request import urlretrieve
 
 
+import seaborn as sns
+import pandas as pd
+import matplotlib.pyplot as plt
+def draw_convergence(y_data, steps, file_name, title_name, x_name='steps', y_name='cost'):
+    fig = plt.figure()
+    sns.set_style("darkgrid")
+    sns.lineplot(x=np.array([i + 1 for i in range(steps)]), y = y_data, linewidth=2)
+    if steps == 20:
+        tick_num = 5
+    else:
+        tick_num = 6
+    x_ticks = np.linspace(0, steps , 6)
+    plt.xticks(x_ticks)
+    # plt.rcParams['font.sans-serif']=['Arial']
+    plt.rcParams.update({'font.sans-serif':'Arial'})
+    fig.suptitle(title_name, fontsize=15)
+    plt.rcParams.update({'font.sans-serif':'Arial'})
+    plt.xlabel(x_name, fontsize=14)
+    plt.rcParams.update({'font.sans-serif':'Arial'})
+    plt.ylabel(y_name, fontsize=14)
+    plt.savefig(file_name)
+    # fig = fig.get_figure()
+    # fig.savefig(file_name)
+
 def clip_img(X, preprocessing='raw'):
     X = reverse_preprocess(X, preprocessing)
     X = np.clip(X, 0.0, 255.0)
@@ -84,6 +108,27 @@ def load_image(path):
         return None
     except IsADirectoryError:
         return None
+
+    # try:
+    #     info = img._getexif()
+    # except OSError:
+    #     return None
+    #
+    # if info is not None:
+    #     for orientation in ExifTags.TAGS.keys():
+    #         if ExifTags.TAGS[orientation] == 'Orientation':
+    #             break
+    #
+    #     exif = dict(img._getexif().items())
+    #     if orientation in exif.keys():
+    #         if exif[orientation] == 3:
+    #             img = img.rotate(180, expand=True)
+    #         elif exif[orientation] == 6:
+    #             img = img.rotate(270, expand=True)
+    #         elif exif[orientation] == 8:
+    #             img = img.rotate(90, expand=True)
+    #         else:
+    #             pass
     img = img.convert('RGB')
     image_array = image.img_to_array(img)
     image_array = image_array / 255.
@@ -126,6 +171,16 @@ class Faces(object):
             p = image_paths[i]
             self.org_faces.append(cur_img)
 
+            # if not no_align:
+            #     align_img = align(cur_img, self.aligner)
+            #     if align_img is None:
+            #         print("Find 0 face(s) in {}".format(p.split("/")[-1]))
+            #         self.images_without_face.append(i)
+            #         continue
+            #
+            #     cur_faces = align_img[0]
+            # else:
+            #     cur_faces = [cur_img]
             cur_faces = [cur_img]
 
             cur_faces = [face for face in cur_faces if face.shape[0] != 0 and face.shape[1] != 0]

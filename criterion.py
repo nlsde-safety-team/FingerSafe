@@ -17,12 +17,36 @@ class Criterion(nn.Module):
 
         # N x 1 distance
         euclidean_distance = F.pairwise_distance(output1, output2, keepdim=True)
-        return euclidean_distance
+        # L1_distance = torch.sum(torch.abs_(output1 - output2))
+        # pred = torch.sigmoid_(L1_distance)
+        # loss_fn = nn.BCELoss()
+        # loss = loss_fn(pred, label)
 
-    # 用于evaluate
+        # output1, output2 = output1.cpu().numpy(), output2.cpu().numpy()
+        # euclidean_distance = np.subtract(output1, output2)
+        # euclidean_distance = np.sum(np.square(euclidean_distance),1)
+        # euclidean_distance = torch.from_numpy(euclidean_distance).unsqueeze(1).cuda()
+
+        # postive sample label = 0 distance descend
+        # negative sample label = 1
+        # negative sample distance has lower bound self.margin
+        # loss = torch.mean((1 - label) * torch.pow(euclidean_distance, 2) +
+        #               label * torch.pow(torch.clamp(self.margin - euclidean_distance, min=0.0), 2))
+        # # cosine_similarity = torch.cosine_similarity(output1, output2, dim=1)
+        # loss = torch.mean((cosine_similarity - label) ** 2)
+
+        # pred = torch.sigmoid(euclidean_distance)
+        # loss = nn.BCELoss(pred, label)
+
+        # self.calculate_metric(euclidean_distance, label)
+
+        return euclidean_distance#, loss
+
     def calculate_metric_tensor(self, euclidean_distance, label, size=1000):
         threshold = torch.linspace(0, self.margin * 2, steps=size).cuda()   # 1000
         predicted_label = torch.where(euclidean_distance > threshold, torch.tensor(1).cuda(), torch.tensor(0).cuda())  # 8*1000
+
+        # print(predicted_label.shape)
 
         '''
                                Predicted
@@ -38,7 +62,6 @@ class Criterion(nn.Module):
 
         return threshold, True_Positive.detach().cpu(), True_Negative.detach().cpu(), False_Negative.detach().cpu(), False_Positive.detach().cpu()
 
-    # Used for Malhotra, et. al
     def calculate_metric_tensor_thresh_sigmoid(self, euclidean_distance, label, size=1000):
         threshold = torch.linspace(0, self.margin * 2, steps=size).cuda()   # 1000
         euclidean_distance = euclidean_distance.squeeze().repeat(1, size)  # batch * 1000
@@ -61,7 +84,6 @@ class Criterion(nn.Module):
 
         return threshold, True_Positive.detach().cpu(), True_Negative.detach().cpu(), False_Negative.detach().cpu(), False_Positive.detach().cpu()
 
-    # Used for Malhotra et, al.
     def calculate_metric_tensor_sigmoid(self, euclidean_distance, label, thresh=1.19):
         predicted_score = torch.sigmoid(euclidean_distance - thresh)
         predicted_label = torch.where(predicted_score < 1/2, torch.tensor(0).cuda(), torch.tensor(1).cuda())
@@ -87,6 +109,8 @@ class Criterion(nn.Module):
         threshold = np.arange(0, self.margin * 2, 0.004)  # 1000
         predicted_label = np.where(euclidean_distance > threshold, 1, 0)  # 8*1000
 
+        # print(predicted_label.shape)
+
         '''
                                Predicted
                          True     False
@@ -95,6 +119,10 @@ class Criterion(nn.Module):
         '''
         label = label.squeeze().repeat(size, 1).transpose(0, 1)
         label = label.cpu().numpy()
+        # True_Negative = np.sum(np.logical_and(predicted_label, label), dim=0)
+        # True_Positive = np.sum(np.logical_not(np.logical_or(predicted_label, label)), dim=0)
+        # False_Positive = np.sum(np.logical_and(np.logical_not(predicted_label), label), dim=0)
+        # False_Negative = np.sum(np.logical_and(predicted_label, np.logical_not(label)), dim=0)
         True_Positive = np.sum(np.logical_not(np.logical_or(predicted_label, label)), dim=0)
         False_Positive = np.sum(np.logical_and(np.logical_not(predicted_label), label), dim=0)
         True_Negative = np.sum(np.logical_and(predicted_label, label), dim=0)
@@ -123,6 +151,8 @@ class Criterion(nn.Module):
         predicted_label = torch.where(euclidean_distance > threshold, torch.tensor(1).cuda(), torch.tensor(0).cuda())
         predicted_label = predicted_label.cuda()
         label = label.cuda()
+        #print(label)
+        #print(predicted_label)
 
         True_Negative = torch.sum(torch.logical_and(predicted_label, label), dim=0)
         True_Positive = torch.sum(torch.logical_not(torch.logical_or(predicted_label, label)), dim=0)
